@@ -21,6 +21,14 @@ def differentiate(
     x = float(at)
     if h is None:
         h = (1.0 + abs(x)) * (1e-16) ** (1 / 3)
+    else:
+        h = float(h)
+        if not math.isfinite(h) or h == 0.0:
+            raise CalcError(
+                "invalid_data",
+                "h must be a finite non-zero step size",
+                "Omit h for an automatic step, or pass a small positive value e.g. 1e-6.",
+            )
     try:
         fp = eval_at(expression, x + h, angle_mode)
         fm = eval_at(expression, x - h, angle_mode)
@@ -60,6 +68,13 @@ def integrate(
     tol: float = 1e-10,
 ) -> dict[str, Any]:
     a, b = float(lower), float(upper)
+    tol = float(tol)
+    if not math.isfinite(tol) or tol <= 0:
+        raise CalcError(
+            "invalid_data",
+            "tol must be a finite positive number",
+            "Pass tol > 0, e.g. 1e-10.",
+        )
     if a == b:
         return ok(integral=0.0, lower=a, upper=b, error_est=0.0, expression=expression)
 

@@ -11,6 +11,7 @@ from mcp_calculator.calculus import differentiate, integrate
 from mcp_calculator.errors import CalcError
 from mcp_calculator.matrix import matrix_op
 from mcp_calculator.rpn import evaluate
+from mcp_calculator.solve import solve_linear
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "mcp_calculator"
 
@@ -75,6 +76,36 @@ def test_huge_matrix():
     with pytest.raises(CalcError) as ei:
         matrix_op("identity", n=1000)
     assert ei.value.code == "overflow"
+
+
+def test_huge_linear_system():
+    n = 100
+    A = [[float(i == j) for j in range(n)] for i in range(n)]
+    b = [1.0] * n
+    with pytest.raises(CalcError) as ei:
+        solve_linear(A=A, b=b)
+    assert ei.value.code == "overflow"
+
+
+def test_differentiate_rejects_bad_h():
+    with pytest.raises(CalcError) as ei:
+        differentiate("x", at=1, h=0)
+    assert ei.value.code == "invalid_data"
+    with pytest.raises(CalcError) as ei:
+        differentiate("x", at=1, h=float("nan"))
+    assert ei.value.code == "invalid_data"
+
+
+def test_integrate_rejects_bad_tol():
+    with pytest.raises(CalcError) as ei:
+        integrate("x", 0, 1, tol=0)
+    assert ei.value.code == "invalid_data"
+    with pytest.raises(CalcError) as ei:
+        integrate("x", 0, 1, tol=-1e-10)
+    assert ei.value.code == "invalid_data"
+    with pytest.raises(CalcError) as ei:
+        integrate("x", 0, 1, tol=float("inf"))
+    assert ei.value.code == "invalid_data"
 
 
 def test_error_has_hint_not_traceback():

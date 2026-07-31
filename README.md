@@ -1,6 +1,6 @@
 # mcp_calculator
 
-Provides a reverse Polish Notation scientific calculator MCP server for LLMs. Verifies numeric work safely (stack machine + allowlists — **no `eval`**) to reduce hallucinated maths answers.
+Provides a Reverse Polish Notation scientific calculator MCP server for LLMs. Verifies numeric work safely (stack machine + allowlists — **no `eval`**) to reduce hallucinated maths answers.
 
 ## Install / use (Cursor / Claude Desktop)
 

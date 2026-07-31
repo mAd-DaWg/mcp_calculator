@@ -9,6 +9,8 @@ from typing import Any
 from mcp_calculator.errors import CalcError, ok
 from mcp_calculator.rpn import eval_at
 
+MAX_DIM = 32
+
 
 def solve_linear(
     coefficients: list[list[float]] | None = None,
@@ -46,6 +48,13 @@ def solve_linear(
                 "A must be square and match b length",
                 "Ensure A is n×n and b has length n.",
             )
+
+    if n > MAX_DIM:
+        raise CalcError(
+            "overflow",
+            f"System exceeds max dimension {MAX_DIM}",
+            f"Use at most {MAX_DIM} equations (n <= {MAX_DIM}).",
+        )
 
     # Gaussian elimination with partial pivoting
     a = [mat[i][:] + [rhs[i]] for i in range(n)]
