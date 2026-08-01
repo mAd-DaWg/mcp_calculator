@@ -9,6 +9,7 @@ import pytest
 
 from mcp_calculator.calculus import differentiate, integrate
 from mcp_calculator.errors import CalcError
+from mcp_calculator.infix import evaluate_infix
 from mcp_calculator.matrix import matrix_op
 from mcp_calculator.rpn import evaluate
 from mcp_calculator.solve import solve_linear
@@ -47,6 +48,27 @@ def test_no_unsafe_eval_in_source():
     ],
 )
 def test_injection_rejected(payload):
+    with pytest.raises(CalcError) as ei:
+        evaluate_infix(payload)
+    assert ei.value.code in {
+        "unknown_token",
+        "empty_expression",
+        "leftover_stack",
+        "stack_underflow",
+        "invalid_data",
+    }
+    assert ei.value.hint
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "__import__('os')",
+        "open('/etc/passwd')",
+        "3;4",
+    ],
+)
+def test_rpn_engine_injection_still_rejected(payload):
     with pytest.raises(CalcError) as ei:
         evaluate(payload)
     assert ei.value.code in {"unknown_token", "empty_expression", "leftover_stack", "stack_underflow"}

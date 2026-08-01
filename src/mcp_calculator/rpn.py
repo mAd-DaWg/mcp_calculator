@@ -81,7 +81,7 @@ def evaluate(
             "invalid_angle_mode",
             f"angle_mode must be rad, deg, or grad; got {angle_mode!r}",
             'Pass angle_mode="deg" (or rad/grad), or insert token DEG/RAD/GRAD.',
-            example='rpn_eval("30 sin", angle_mode="deg")',
+            example='evaluate("sin(30)", angle_mode="deg")',
         )
 
     if expression is None or not str(expression).strip():
@@ -143,7 +143,7 @@ def evaluate(
             raise CalcError(
                 "unknown_token",
                 f"Unknown token {token!r} at position {pos}",
-                "Use list_operations / list_constants; RPN tokens only (no infix like 3+4).",
+                "Use list_operations / list_constants; check the internal RPN after infix conversion.",
                 token=token,
                 position=pos,
                 did_you_mean=suggestion,
@@ -180,7 +180,7 @@ def evaluate(
         raise CalcError(
             "leftover_stack",
             f"{len(stack)} values left after expression",
-            "Combine leftovers with an op, or split into separate rpn_eval calls.",
+            "Combine leftovers with an op, or split into separate evaluate calls.",
             stack_size=len(stack),
             example="3 4 +",
         )
@@ -193,13 +193,13 @@ def evaluate(
 
 
 def eval_at(expression: str, x: float, angle_mode: str = "rad") -> float:
-    """Evaluate RPN f(x) at a real x; used by calculus/solvers."""
+    """Evaluate postfix f(x) at a real x (internal RPN engine)."""
     res = evaluate(expression, angle_mode=angle_mode, bindings={"x": x})
     val = res["result"]
     if isinstance(val, dict):
         raise CalcError(
             "domain_error",
             "Expression produced a complex value where a real was required",
-            "Use a real-valued RPN expression in x.",
+            "Use a real-valued expression in x.",
         )
     return float(val)

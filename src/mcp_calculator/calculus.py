@@ -6,7 +6,7 @@ import math
 from typing import Any
 
 from mcp_calculator.errors import CalcError, ok
-from mcp_calculator.rpn import eval_at
+from mcp_calculator.infix import eval_at
 
 MAX_DEPTH = 40
 MAX_EVALS = 100_000

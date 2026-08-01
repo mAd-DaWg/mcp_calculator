@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mcp-calculator"
 version = "0.1.0"
-description = "RPN scientific calculator MCP server for LLMs"
+description = "Infix scientific calculator MCP server for LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"

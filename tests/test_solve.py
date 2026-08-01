@@ -25,20 +25,20 @@ def test_linear_singular():
 
 
 def test_root_brent_sqrt2():
-    r = solve_root("x sq 2 -", bracket=[0, 2])
+    r = solve_root("x^2-2", bracket=[0, 2])
     assert r["root"] == pytest.approx(math.sqrt(2), rel=1e-10)
     assert r["method"] == "brent"
     assert r["abs_f"] < 1e-10
 
 
 def test_root_newton():
-    r = solve_root("x sq 2 -", guess=1.0)
+    r = solve_root("x^2-2", guess=1.0)
     assert r["root"] == pytest.approx(math.sqrt(2), rel=1e-8)
 
 
 def test_root_no_sign_change():
     with pytest.raises(CalcError) as ei:
-        solve_root("x sq 2 +", bracket=[0, 1])
+        solve_root("x^2+2", bracket=[0, 1])
     assert ei.value.code == "no_root"
     assert ei.value.hint
 
