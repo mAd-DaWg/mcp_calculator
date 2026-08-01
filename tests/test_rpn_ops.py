@@ -80,6 +80,8 @@ OP_CASES = {
     "gcd": ("12 8 gcd", 4),
     "lcm": ("4 6 lcm", 12),
     "cmplx": ("3 4 cmplx re", 3),
+    "polar": ("2 0 polar re", 2),
+    "engshift": ("1234 -1 engshift", 1.234),
     "re": ("3 4 cmplx re", 3),
     "im": ("3 4 cmplx im", 4),
     "conj": ("3 4 cmplx conj re", 3),

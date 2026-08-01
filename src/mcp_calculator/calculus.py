@@ -133,3 +133,68 @@ def integrate(
         expression=expression,
         angle_mode=angle_mode,
     )
+
+
+def _golden_extremum(
+    expression: str,
+    lower: float,
+    upper: float,
+    angle_mode: str,
+    *,
+    find_min: bool,
+    tol: float,
+) -> dict[str, Any]:
+    a, b = float(lower), float(upper)
+    if a > b:
+        a, b = b, a
+    if not math.isfinite(tol) or tol <= 0:
+        raise CalcError("invalid_data", "tol must be positive", "Pass tol > 0.")
+    phi = (math.sqrt(5) - 1) / 2
+    c = b - phi * (b - a)
+    d = a + phi * (b - a)
+    fc = eval_at(expression, c, angle_mode)
+    fd = eval_at(expression, d, angle_mode)
+    iters = 0
+    while abs(b - a) > tol and iters < 200:
+        iters += 1
+        if (fc < fd) if find_min else (fc > fd):
+            b, d, fd = d, c, fc
+            c = b - phi * (b - a)
+            fc = eval_at(expression, c, angle_mode)
+        else:
+            a, c, fc = c, d, fd
+            d = a + phi * (b - a)
+            fd = eval_at(expression, d, angle_mode)
+    x = 0.5 * (a + b)
+    y = eval_at(expression, x, angle_mode)
+    key = "minimum" if find_min else "maximum"
+    return ok(
+        **{key: y, "x": x},
+        lower=float(lower),
+        upper=float(upper),
+        iterations=iters,
+        expression=expression,
+        angle_mode=angle_mode,
+    )
+
+
+def fmin(
+    expression: str,
+    lower: float,
+    upper: float,
+    angle_mode: str = "rad",
+    tol: float = 1e-10,
+) -> dict[str, Any]:
+    """fMin: approximate local minimum of f(x) on [lower, upper]."""
+    return _golden_extremum(expression, lower, upper, angle_mode, find_min=True, tol=tol)
+
+
+def fmax(
+    expression: str,
+    lower: float,
+    upper: float,
+    angle_mode: str = "rad",
+    tol: float = 1e-10,
+) -> dict[str, Any]:
+    """fMax: approximate local maximum of f(x) on [lower, upper]."""
+    return _golden_extremum(expression, lower, upper, angle_mode, find_min=False, tol=tol)

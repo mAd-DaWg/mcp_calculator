@@ -17,50 +17,50 @@ CONSTANTS: dict[str, dict[str, Any]] = {
     "tau": {"value": math.tau, "unit": "1", "note": "2*pi"},
     "phi": {"value": (1 + math.sqrt(5)) / 2, "unit": "1", "note": "Golden ratio"},
     "inf": {"value": math.inf, "unit": "1", "note": "Positive infinity"},
-    # Casio-catalog coverage checklist — values from CODATA 2022 / SI
-    "mp": {"value": 1.67262192595e-27, "unit": "kg", "note": "proton mass", "casio": 1},
-    "mn": {"value": 1.67492750056e-27, "unit": "kg", "note": "neutron mass", "casio": 2},
-    "me": {"value": 9.1093837139e-31, "unit": "kg", "note": "electron mass", "casio": 3},
-    "mmu": {"value": 1.883531627e-28, "unit": "kg", "note": "muon mass", "casio": 4},
-    "a0": {"value": 5.29177210544e-11, "unit": "m", "note": "Bohr radius", "casio": 5},
-    "h": {"value": 6.62607015e-34, "unit": "J s", "note": "Planck constant (exact)", "casio": 6},
-    "muN": {"value": 5.0507837393e-27, "unit": "J T^-1", "note": "nuclear magneton", "casio": 7},
-    "muB": {"value": 9.2740100657e-24, "unit": "J T^-1", "note": "Bohr magneton", "casio": 8},
-    "hbar": {"value": 1.0545718176461565e-34, "unit": "J s", "note": "reduced Planck constant", "casio": 9},
-    "alpha": {"value": 7.2973525643e-3, "unit": "1", "note": "fine-structure constant", "casio": 10},
-    "r_e": {"value": 2.8179403205e-15, "unit": "m", "note": "classical electron radius (token r_e; op 're' is real-part)", "casio": 11},
-    "lambdaC": {"value": 2.42631023538e-12, "unit": "m", "note": "Compton wavelength", "casio": 12},
-    "gammap": {"value": 2.6752218708e8, "unit": "s^-1 T^-1", "note": "proton gyromagnetic ratio", "casio": 13},
-    "lambdaCp": {"value": 1.32140985539e-15, "unit": "m", "note": "proton Compton wavelength", "casio": 14},
-    "lambdaCn": {"value": 1.31959090382e-15, "unit": "m", "note": "neutron Compton wavelength", "casio": 15},
-    "Rinf": {"value": 10973731.568157, "unit": "m^-1", "note": "Rydberg constant", "casio": 16},
-    "u": {"value": 1.66053906892e-27, "unit": "kg", "note": "atomic mass unit", "casio": 17},
-    "mup": {"value": 1.41060679545e-26, "unit": "J T^-1", "note": "proton magnetic moment", "casio": 18},
-    "mue": {"value": -9.2847646917e-24, "unit": "J T^-1", "note": "electron magnetic moment", "casio": 19},
-    "mun": {"value": -9.6623653e-27, "unit": "J T^-1", "note": "neutron magnetic moment", "casio": 20},
-    "mumu": {"value": -4.49044830e-26, "unit": "J T^-1", "note": "muon magnetic moment", "casio": 21},
-    "F": {"value": 96485.3321, "unit": "C mol^-1", "note": "Faraday constant", "casio": 22},
-    "qe": {"value": 1.602176634e-19, "unit": "C", "note": "elementary charge (exact); use qe not e", "casio": 23},
+    # Physics/math constants — values from CODATA 2022 / SI
+    "mp": {"value": 1.67262192595e-27, "unit": "kg", "note": "proton mass", "catalog": 1},
+    "mn": {"value": 1.67492750056e-27, "unit": "kg", "note": "neutron mass", "catalog": 2},
+    "me": {"value": 9.1093837139e-31, "unit": "kg", "note": "electron mass", "catalog": 3},
+    "mmu": {"value": 1.883531627e-28, "unit": "kg", "note": "muon mass", "catalog": 4},
+    "a0": {"value": 5.29177210544e-11, "unit": "m", "note": "Bohr radius", "catalog": 5},
+    "h": {"value": 6.62607015e-34, "unit": "J s", "note": "Planck constant (exact)", "catalog": 6},
+    "muN": {"value": 5.0507837393e-27, "unit": "J T^-1", "note": "nuclear magneton", "catalog": 7},
+    "muB": {"value": 9.2740100657e-24, "unit": "J T^-1", "note": "Bohr magneton", "catalog": 8},
+    "hbar": {"value": 1.0545718176461565e-34, "unit": "J s", "note": "reduced Planck constant", "catalog": 9},
+    "alpha": {"value": 7.2973525643e-3, "unit": "1", "note": "fine-structure constant", "catalog": 10},
+    "r_e": {"value": 2.8179403205e-15, "unit": "m", "note": "classical electron radius (token r_e; op 're' is real-part)", "catalog": 11},
+    "lambdaC": {"value": 2.42631023538e-12, "unit": "m", "note": "Compton wavelength", "catalog": 12},
+    "gammap": {"value": 2.6752218708e8, "unit": "s^-1 T^-1", "note": "proton gyromagnetic ratio", "catalog": 13},
+    "lambdaCp": {"value": 1.32140985539e-15, "unit": "m", "note": "proton Compton wavelength", "catalog": 14},
+    "lambdaCn": {"value": 1.31959090382e-15, "unit": "m", "note": "neutron Compton wavelength", "catalog": 15},
+    "Rinf": {"value": 10973731.568157, "unit": "m^-1", "note": "Rydberg constant", "catalog": 16},
+    "u": {"value": 1.66053906892e-27, "unit": "kg", "note": "atomic mass unit", "catalog": 17},
+    "mup": {"value": 1.41060679545e-26, "unit": "J T^-1", "note": "proton magnetic moment", "catalog": 18},
+    "mue": {"value": -9.2847646917e-24, "unit": "J T^-1", "note": "electron magnetic moment", "catalog": 19},
+    "mun": {"value": -9.6623653e-27, "unit": "J T^-1", "note": "neutron magnetic moment", "catalog": 20},
+    "mumu": {"value": -4.49044830e-26, "unit": "J T^-1", "note": "muon magnetic moment", "catalog": 21},
+    "F": {"value": 96485.3321, "unit": "C mol^-1", "note": "Faraday constant", "catalog": 22},
+    "qe": {"value": 1.602176634e-19, "unit": "C", "note": "elementary charge (exact); use qe not e", "catalog": 23},
     "echarge": {"value": 1.602176634e-19, "unit": "C", "note": "Alias for qe"},
-    "NA": {"value": 6.02214076e23, "unit": "mol^-1", "note": "Avogadro constant (exact)", "casio": 24},
-    "k": {"value": 1.380649e-23, "unit": "J K^-1", "note": "Boltzmann constant (exact)", "casio": 25},
+    "NA": {"value": 6.02214076e23, "unit": "mol^-1", "note": "Avogadro constant (exact)", "catalog": 24},
+    "k": {"value": 1.380649e-23, "unit": "J K^-1", "note": "Boltzmann constant (exact)", "catalog": 25},
     "k_B": {"value": 1.380649e-23, "unit": "J K^-1", "note": "Alias for k"},
-    "Vm": {"value": 22.71095464e-3, "unit": "m^3 mol^-1", "note": "molar volume ideal gas (273.15 K, 100 kPa)", "casio": 26},
-    "R": {"value": 8.314462618, "unit": "J mol^-1 K^-1", "note": "molar gas constant", "casio": 27},
-    "c": {"value": 299792458.0, "unit": "m s^-1", "note": "speed of light (exact)", "casio": 28},
-    "c1": {"value": 3.741771852e-16, "unit": "W m^2", "note": "first radiation constant", "casio": 29},
-    "c2": {"value": 1.438776877e-2, "unit": "m K", "note": "second radiation constant", "casio": 30},
-    "sigma": {"value": 5.670374419e-8, "unit": "W m^-2 K^-4", "note": "Stefan-Boltzmann constant", "casio": 31},
-    "eps0": {"value": 8.8541878188e-12, "unit": "F m^-1", "note": "vacuum electric permittivity", "casio": 32},
+    "Vm": {"value": 22.71095464e-3, "unit": "m^3 mol^-1", "note": "molar volume ideal gas (273.15 K, 100 kPa)", "catalog": 26},
+    "R": {"value": 8.314462618, "unit": "J mol^-1 K^-1", "note": "molar gas constant", "catalog": 27},
+    "c": {"value": 299792458.0, "unit": "m s^-1", "note": "speed of light (exact)", "catalog": 28},
+    "c1": {"value": 3.741771852e-16, "unit": "W m^2", "note": "first radiation constant", "catalog": 29},
+    "c2": {"value": 1.438776877e-2, "unit": "m K", "note": "second radiation constant", "catalog": 30},
+    "sigma": {"value": 5.670374419e-8, "unit": "W m^-2 K^-4", "note": "Stefan-Boltzmann constant", "catalog": 31},
+    "eps0": {"value": 8.8541878188e-12, "unit": "F m^-1", "note": "vacuum electric permittivity", "catalog": 32},
     "epsilon0": {"value": 8.8541878188e-12, "unit": "F m^-1", "note": "Alias for eps0"},
-    "mu0": {"value": 1.25663706127e-6, "unit": "N A^-2", "note": "vacuum magnetic permeability", "casio": 33},
-    "Phi0": {"value": 2.067833848e-15, "unit": "Wb", "note": "magnetic flux quantum", "casio": 34},
-    "g": {"value": 9.80665, "unit": "m s^-2", "note": "standard acceleration of gravity", "casio": 35},
-    "G0": {"value": 7.748091729e-5, "unit": "S", "note": "conductance quantum", "casio": 36},
-    "Z0": {"value": 376.730313412, "unit": "ohm", "note": "characteristic impedance of vacuum", "casio": 37},
-    "t0C": {"value": 273.15, "unit": "K", "note": "0 °C in kelvin", "casio": 38},
-    "G": {"value": 6.67430e-11, "unit": "m^3 kg^-1 s^-2", "note": "Newtonian constant of gravitation", "casio": 39},
-    "atm": {"value": 101325.0, "unit": "Pa", "note": "standard atmosphere", "casio": 40},
+    "mu0": {"value": 1.25663706127e-6, "unit": "N A^-2", "note": "vacuum magnetic permeability", "catalog": 33},
+    "Phi0": {"value": 2.067833848e-15, "unit": "Wb", "note": "magnetic flux quantum", "catalog": 34},
+    "g": {"value": 9.80665, "unit": "m s^-2", "note": "standard acceleration of gravity", "catalog": 35},
+    "G0": {"value": 7.748091729e-5, "unit": "S", "note": "conductance quantum", "catalog": 36},
+    "Z0": {"value": 376.730313412, "unit": "ohm", "note": "characteristic impedance of vacuum", "catalog": 37},
+    "t0C": {"value": 273.15, "unit": "K", "note": "0 °C in kelvin", "catalog": 38},
+    "G": {"value": 6.67430e-11, "unit": "m^3 kg^-1 s^-2", "note": "Newtonian constant of gravitation", "catalog": 39},
+    "atm": {"value": 101325.0, "unit": "Pa", "note": "standard atmosphere", "catalog": 40},
 }
 
 # Case-insensitive lookup only when unambiguous (muN vs mun collide if lowercased)
@@ -89,14 +89,20 @@ def resolve_constant(token: str) -> float | None:
 def list_constants() -> list[dict[str, Any]]:
     out = []
     for name, meta in CONSTANTS.items():
+        val = meta["value"]
+        # MCP tools serialize with allow_nan=False; keep non-finite values JSON-safe.
+        if isinstance(val, float) and not math.isfinite(val):
+            json_val: Any = "Infinity" if val > 0 else ("-Infinity" if val < 0 else "NaN")
+        else:
+            json_val = val
         item = {
             "name": name,
-            "value": meta["value"],
+            "value": json_val,
             "unit": meta["unit"],
             "note": meta.get("note", ""),
             "codata_year": CODATA_YEAR,
         }
-        if "casio" in meta:
-            item["casio_index"] = meta["casio"]
+        if "catalog" in meta:
+            item["catalog_index"] = meta["catalog"]
         out.append(item)
     return out

@@ -78,5 +78,6 @@ def catch_calc(fn, *args, **kwargs) -> dict[str, Any]:
         return fail(
             "internal_error",
             f"Unexpected failure: {type(exc).__name__}",
-            "Retry with simpler inputs, or call list_operations / list_constants to verify tokens.",
+            "Retry with simpler inputs. For unknown names call list_operations or "
+            "list_constants; for units call list_unit_conversions. Read any prior hint/example.",
         )

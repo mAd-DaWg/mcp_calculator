@@ -552,6 +552,34 @@ def _cmplx(args, ctx):
     return complex(re, im)
 
 
+def _polar(args, ctx):
+    """r ∠ θ → complex; θ uses current angle_mode."""
+    r = _as_real(args[0], "polar")
+    th = _as_real(args[1], "polar")
+    mode = ctx["angle_mode"][0]
+    if mode == "deg":
+        rad = th * math.pi / 180.0
+    elif mode == "grad":
+        rad = th * math.pi / 200.0
+    else:
+        rad = th
+    return complex(r * math.cos(rad), r * math.sin(rad))
+
+
+def _engshift(args, ctx):
+    """Engineering shift: multiply by 1000^steps (ENG / ENG←)."""
+    x = _as_real(args[0], "engshift")
+    steps = _as_real(args[1], "engshift")
+    if not _is_int(steps):
+        raise CalcError(
+            "invalid_integer",
+            "engshift steps must be an integer",
+            "Example: engshift(1234, 1) → 1.234e6 style shift by ×1000.",
+            op="engshift",
+        )
+    return _finite(x * (1000.0 ** int(round(steps))), "engshift")
+
+
 def _re(args, ctx):
     x = args[0]
     return float(x.real) if isinstance(x, complex) else float(x)
@@ -660,6 +688,8 @@ def _build_ops() -> dict[str, OpSpec]:
         OpSpec("gcd", 2, "Greatest common divisor", fn=_gcd),
         OpSpec("lcm", 2, "Least common multiple", fn=_lcm),
         OpSpec("cmplx", 2, "Pack re im → complex", fn=_cmplx),
+        OpSpec("polar", 2, "r∠θ → complex (θ uses angle_mode)", True, _polar),
+        OpSpec("engshift", 2, "Engineering shift: x * 1000^n", fn=_engshift),
         OpSpec("re", 1, "Real part", fn=_re),
         OpSpec("im", 1, "Imaginary part", fn=_im),
         OpSpec("conj", 1, "Complex conjugate", fn=_conj),

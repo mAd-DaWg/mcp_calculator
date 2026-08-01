@@ -1,8 +1,9 @@
-"""Safety: no eval/exec, injection rejected, resource limits."""
+"""Safety: no eval/exec, injection rejected, resource limits, MCP JSON boundary."""
 
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 
 import pytest
@@ -10,13 +11,17 @@ import pytest
 from mcp_calculator.calculus import differentiate, integrate
 from mcp_calculator.errors import CalcError
 from mcp_calculator.infix import evaluate_infix
+from mcp_calculator.list_finance import list_op
 from mcp_calculator.matrix import matrix_op
 from mcp_calculator.rpn import evaluate
 from mcp_calculator.solve import solve_linear
+from mcp_calculator.stats import stats_1var
+from mcp_calculator.calc_extra import table as table_fn
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "mcp_calculator"
 
 FORBIDDEN_CALLS = {"eval", "exec"}
+FORBIDDEN_IMPORT_ROOTS = {"subprocess", "pickle", "ctypes", "importlib"}
 
 
 def test_no_unsafe_eval_in_source():
@@ -30,10 +35,13 @@ def test_no_unsafe_eval_in_source():
                     pytest.fail(f"{path.name} calls .{node.func.attr}")
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    if alias.name == "subprocess":
-                        pytest.fail(f"{path.name} imports subprocess")
-            if isinstance(node, ast.ImportFrom) and node.module == "subprocess":
-                pytest.fail(f"{path.name} imports from subprocess")
+                    root = alias.name.split(".", 1)[0]
+                    if root in FORBIDDEN_IMPORT_ROOTS:
+                        pytest.fail(f"{path.name} imports {alias.name}")
+            if isinstance(node, ast.ImportFrom) and node.module:
+                root = node.module.split(".", 1)[0]
+                if root in FORBIDDEN_IMPORT_ROOTS:
+                    pytest.fail(f"{path.name} imports from {node.module}")
 
 
 @pytest.mark.parametrize(
@@ -82,9 +90,102 @@ def test_calculus_injection():
         integrate("open('/etc/passwd')", 0, 1)
 
 
-def test_token_limit():
+def _assert_tool_error_json(raw: str) -> dict:
+    assert isinstance(raw, str)
+    payload = json.loads(raw)
+    assert payload["ok"] is False
+    assert payload.get("hint")
+    assert "Traceback" not in payload.get("message", "")
+    assert "Traceback" not in payload.get("hint", "")
+    assert "traceback" not in payload
+    return payload
+
+
+def test_server_evaluate_injection_json_boundary():
+    from mcp_calculator import server
+
+    _assert_tool_error_json(server.evaluate("__import__('os')"))
+
+
+def test_server_solve_root_injection():
+    from mcp_calculator import server
+
+    _assert_tool_error_json(server.solve_root("__import__('os')", bracket=[0.0, 1.0]))
+
+
+def test_server_summation_injection():
+    from mcp_calculator import server
+
+    _assert_tool_error_json(server.summation("open('/etc/passwd')", start=1, end=2))
+
+
+def test_server_list_op_seq_injection():
+    from mcp_calculator import server
+
+    _assert_tool_error_json(
+        server.list_op(op="seq", expression="os.system('id')", start=1.0, end=2.0, step=1.0)
+    )
+
+
+def test_server_division_by_zero_structured():
+    from mcp_calculator import server
+
+    payload = _assert_tool_error_json(server.evaluate("1/0"))
+    assert payload["error"] in {"division_by_zero", "domain_error", "overflow"}
+
+
+def test_server_log_zero_structured():
+    from mcp_calculator import server
+
+    payload = _assert_tool_error_json(server.evaluate("ln(0)"))
+    assert payload["error"] in {"domain_error", "overflow"}
+
+
+def test_server_inf_constant_is_structured_overflow():
+    from mcp_calculator import server
+
+    payload = _assert_tool_error_json(server.evaluate("inf"))
+    assert payload["error"] == "overflow"
+
+
+def test_token_limit(monkeypatch):
+    monkeypatch.setattr("mcp_calculator.rpn.MAX_TOKENS", 8)
     with pytest.raises(CalcError) as ei:
-        evaluate("1 " * 10001)
+        evaluate("1 1 1 1 1 1 1 1 1")
+    assert ei.value.code == "overflow"
+
+
+def test_infix_expression_length_limit(monkeypatch):
+    monkeypatch.setattr("mcp_calculator.infix.MAX_EXPR_LEN", 16)
+    with pytest.raises(CalcError) as ei:
+        evaluate_infix("1" * 20)
+    assert ei.value.code == "overflow"
+
+
+def test_infix_token_flood(monkeypatch):
+    monkeypatch.setattr("mcp_calculator.infix.MAX_TOKENS", 8)
+    with pytest.raises(CalcError) as ei:
+        evaluate_infix("1+1+1+1+1+1+1+1+1")
+    assert ei.value.code == "overflow"
+
+
+def test_stats_sample_size_limit(monkeypatch):
+    monkeypatch.setattr("mcp_calculator.stats.MAX_N", 10)
+    with pytest.raises(CalcError) as ei:
+        stats_1var([0.0] * 11)
+    assert ei.value.code == "overflow"
+
+
+def test_table_range_limit():
+    # Early estimate rejects without allocating rows.
+    with pytest.raises(CalcError) as ei:
+        table_fn("x", start=0.0, end=1e9, step=1.0)
+    assert ei.value.code == "overflow"
+
+
+def test_list_op_seq_length_limit():
+    with pytest.raises(CalcError) as ei:
+        list_op(op="seq", expression="x", start=0.0, end=1e9, step=1.0)
     assert ei.value.code == "overflow"
 
 
@@ -101,7 +202,8 @@ def test_huge_matrix():
 
 
 def test_huge_linear_system():
-    n = 100
+    # Just over MAX_DIM (32); avoid building a huge test matrix.
+    n = 33
     A = [[float(i == j) for j in range(n)] for i in range(n)]
     b = [1.0] * n
     with pytest.raises(CalcError) as ei:
@@ -138,3 +240,4 @@ def test_error_has_hint_not_traceback():
     assert "hint" in d
     assert "Traceback" not in d["message"]
     assert "hint" in d and d["hint"]
+    assert "traceback" not in d

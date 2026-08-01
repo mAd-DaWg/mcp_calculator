@@ -26,6 +26,8 @@ def test_2var_regression():
     assert r["b"] == pytest.approx(2)
     assert r["a"] == pytest.approx(1)
     assert r["r"] == pytest.approx(1)
+    assert r["model"] == "linear"
+    assert r["equation"] == "y = a + b*x"
 
 
 def test_2var_mismatch():

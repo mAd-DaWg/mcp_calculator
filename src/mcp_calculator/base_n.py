@@ -82,6 +82,9 @@ def base_arith(op: str, a: str | int, b: str | int | None = None, base: int = 10
     if op == "not":
         res = (~xa) & MASK
         return ok(op=op, result=_fmt(res, base), decimal_unsigned=res, base=base)
+    if op == "neg":
+        res = (-xa) & MASK
+        return ok(op=op, result=_fmt(res, base), decimal_unsigned=res, base=base)
     if b is None:
         raise CalcError(
             "invalid_data",
@@ -112,11 +115,13 @@ def base_arith(op: str, a: str | int, b: str | int | None = None, base: int = 10
         res = xa | xb
     elif op == "xor":
         res = xa ^ xb
+    elif op == "xnor":
+        res = ~(xa ^ xb) & MASK
     else:
         raise CalcError(
             "unknown_token",
             f"Unknown base op {op!r}",
-            "Use add, sub, mul, div, and, or, xor, not.",
+            "Use add, sub, mul, div, and, or, xor, xnor, not, neg.",
             token=op,
         )
     return ok(op=op, result=_fmt(res, base), decimal_unsigned=res, base=base)

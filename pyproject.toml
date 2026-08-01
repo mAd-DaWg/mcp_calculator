@@ -34,7 +34,8 @@ pythonpath = ["src"]
 
 [tool.coverage.run]
 source = ["mcp_calculator"]
-omit = ["*/server.py", "*/__main__.py"]
+# __main__ is stdio entry only; server.py is measured and must be tested
+omit = ["*/__main__.py"]
 
 [tool.coverage.report]
 fail_under = 80

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import random
 import re
 from typing import Any
@@ -63,10 +64,23 @@ def _closest_name(token: str, names: list[str]) -> str | None:
 
 def serialize_number(x: Number) -> Any:
     if isinstance(x, complex):
+        if not (math.isfinite(x.real) and math.isfinite(x.imag)):
+            raise CalcError(
+                "overflow",
+                "Non-finite complex result",
+                "Avoid ±Infinity/NaN results; check domain and magnitude.",
+            )
         if abs(x.imag) < 1e-15:
             return float(x.real)
         return {"re": float(x.real), "im": float(x.imag)}
-    return float(x)
+    fx = float(x)
+    if not math.isfinite(fx):
+        raise CalcError(
+            "overflow",
+            "Non-finite result",
+            "Avoid ±Infinity/NaN results; check domain and magnitude.",
+        )
+    return fx
 
 
 def evaluate(

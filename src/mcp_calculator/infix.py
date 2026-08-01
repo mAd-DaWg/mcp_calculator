@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import random
 import re
 from dataclasses import dataclass
@@ -28,6 +29,48 @@ _NUM_RE = re.compile(
 )
 
 _IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+# SI engineering prefixes (scientific calculator Engineer Symbol)
+_ENG_PREFIX = {
+    "f": 1e-15,
+    "p": 1e-12,
+    "n": 1e-9,
+    "u": 1e-6,
+    "μ": 1e-6,
+    "m": 1e-3,
+    "k": 1e3,
+    "M": 1e6,
+    "G": 1e9,
+    "T": 1e12,
+    "P": 1e15,
+    "E": 1e18,
+}
+
+_ANGLE_SUFFIX_WORD = {"deg": "deg", "rad": "rad", "grad": "grad"}
+
+
+def _to_rad(value: float, unit: str) -> float:
+    if unit == "deg":
+        return value * math.pi / 180.0
+    if unit == "grad":
+        return value * math.pi / 200.0
+    return value
+
+
+def _from_rad(radians: float, unit: str) -> float:
+    if unit == "deg":
+        return radians * 180.0 / math.pi
+    if unit == "grad":
+        return radians * 200.0 / math.pi
+    return radians
+
+
+def _convert_angle_value(value: float, from_unit: str, to_unit: str) -> float:
+    return _from_rad(_to_rad(value, from_unit), to_unit)
+
+
+def _parse_real_token(text: str) -> float:
+    return float(text)
 
 
 @dataclass(frozen=True)
@@ -56,11 +99,48 @@ def _closest_name(token: str, names: list[str]) -> str | None:
     return best if best_score > 0 else None
 
 
-def tokenize(expression: str) -> list[Tok]:
+def _match_eng_suffix(s: str, i: int) -> tuple[str, float] | None:
+    """Return (suffix, factor) if s[i:] starts with an engineering symbol suffix."""
+    if i >= len(s):
+        return None
+    ch = s[i]
+    if ch in _ENG_PREFIX:
+        # glued suffix: not followed by another letter/digit/_ (except μ is one char)
+        nxt = s[i + 1] if i + 1 < len(s) else ""
+        if nxt and (nxt.isalnum() or nxt == "_"):
+            return None
+        return ch, _ENG_PREFIX[ch]
+    return None
+
+
+def _match_angle_suffix(s: str, i: int) -> tuple[str, int] | None:
+    """Return (unit, end_index) for ° / r / g / deg / rad / grad after a number."""
+    if i >= len(s):
+        return None
+    ch = s[i]
+    if ch in ("°", "˚"):
+        return "deg", i + 1
+    # word suffixes deg/rad/grad
+    m = _IDENT_RE.match(s, i)
+    if m:
+        word = m.group(0).lower()
+        if word in _ANGLE_SUFFIX_WORD:
+            return _ANGLE_SUFFIX_WORD[word], m.end()
+    # single-letter r / g (not start of a longer identifier)
+    if ch in ("r", "g"):
+        nxt = s[i + 1] if i + 1 < len(s) else ""
+        if nxt and (nxt.isalnum() or nxt == "_"):
+            return None
+        return ("rad" if ch == "r" else "grad"), i + 1
+    return None
+
+
+def tokenize(expression: str, *, angle_mode: str = "rad") -> list[Tok]:
     s = expression
     i = 0
     n = len(s)
     out: list[Tok] = []
+    mode = angle_mode if angle_mode in ("rad", "deg", "grad") else "rad"
     while i < n:
         ch = s[i]
         if ch.isspace():
@@ -82,6 +162,10 @@ def tokenize(expression: str) -> list[Tok]:
             out.append(Tok("bang", "!", i))
             i += 1
             continue
+        if ch in ("∠", "∟"):
+            out.append(Tok("op", "∠", i))
+            i += 1
+            continue
         if ch == "*" and i + 1 < n and s[i + 1] == "*":
             out.append(Tok("op", "^", i))
             i += 2
@@ -92,8 +176,39 @@ def tokenize(expression: str) -> list[Tok]:
             continue
         m = _NUM_RE.match(s, i)
         if m:
-            out.append(Tok("num", m.group(0), i))
+            raw = m.group(0)
+            pos = i
             i = m.end()
+            # skip complex literals for eng/angle suffixes
+            if "j" in raw.lower():
+                out.append(Tok("num", raw, pos))
+                continue
+            eng = _match_eng_suffix(s, i)
+            # apply eng and/or angle suffix if glued to the number
+            j = i
+            val = None
+            if eng is not None:
+                suf, factor = eng
+                val = _parse_real_token(raw) * factor
+                j = i + len(suf)
+            ang = _match_angle_suffix(s, j)
+            if ang is not None:
+                unit, end = ang
+                if val is None:
+                    val = _parse_real_token(raw)
+                val = _convert_angle_value(val, unit, mode)
+                j = end
+            if eng is not None or ang is not None:
+                # normalized float token after suffix conversion
+                if val is not None and abs(val - round(val)) < 1e-12 and abs(val) < 1e15:
+                    num_s = str(int(round(val)))
+                else:
+                    num_s = repr(float(val))
+                out.append(Tok("num", num_s, pos))
+                i = j
+            else:
+                out.append(Tok("num", raw, pos))
+                i = m.end()
             continue
         m = _IDENT_RE.match(s, i)
         if m:
@@ -103,7 +218,7 @@ def tokenize(expression: str) -> list[Tok]:
         raise CalcError(
             "unknown_token",
             f"Unexpected character {ch!r} at position {i}",
-            "Use infix maths like 90+(40-30), sin(30), or x^2-2.",
+            "Use infix maths like 90+(40-30), sin(30°), 2∠30, or 500k.",
             example="90+(40-30)",
             position=i,
             token=ch,
@@ -118,10 +233,8 @@ def _insert_implicit_mul(tokens: list[Tok]) -> list[Tok]:
     out: list[Tok] = [tokens[0]]
     for tok in tokens[1:]:
         prev = out[-1]
-        # left can end a value; right can start a value
         left_val = prev.kind in ("num", "ident", "rparen", "bang")
         right_val = tok.kind in ("num", "ident", "lparen")
-        # ident( is a function call, not implicit mul — skip when ident + (
         if left_val and right_val:
             if not (prev.kind == "ident" and tok.kind == "lparen"):
                 out.append(Tok("op", "*", prev.pos))
@@ -130,7 +243,8 @@ def _insert_implicit_mul(tokens: list[Tok]) -> list[Tok]:
 
 
 # Binary op precedence (higher = tighter). Unary handled separately.
-_PREC = {"+": 1, "-": 1, "*": 2, "/": 2, "%": 2, "^": 4}
+# ∠ binds like a tight constructor between r and θ (above *).
+_PREC = {"+": 1, "-": 1, "*": 2, "/": 2, "%": 2, "∠": 3, "^": 4}
 _RIGHT_ASSOC = {"^"}
 
 
@@ -138,7 +252,12 @@ def _is_value_token(kind: str) -> bool:
     return kind in ("num", "ident", "rparen", "bang")
 
 
-def to_rpn(expression: str, *, allow_bindings: set[str] | None = None) -> list[str]:
+def to_rpn(
+    expression: str,
+    *,
+    allow_bindings: set[str] | None = None,
+    angle_mode: str = "rad",
+) -> list[str]:
     """Convert infix expression to RPN token list."""
     if expression is None or not str(expression).strip():
         raise CalcError(
@@ -155,7 +274,7 @@ def to_rpn(expression: str, *, allow_bindings: set[str] | None = None) -> list[s
             f"Keep expression under {MAX_EXPR_LEN} characters.",
         )
 
-    raw = tokenize(expr)
+    raw = tokenize(expr, angle_mode=angle_mode)
     tokens = _insert_implicit_mul(raw)
     if len(tokens) > MAX_TOKENS:
         raise CalcError(
@@ -284,7 +403,7 @@ def to_rpn(expression: str, *, allow_bindings: set[str] | None = None) -> list[s
             while ops:
                 top = ops[-1]
                 if isinstance(top, tuple) and top[0] == "unary":
-                    # unary prec 3; binary * is 2, ^ is 4
+                    # unary prec 3; binary * is 2, ∠ is 3, ^ is 4
                     u_prec = 3
                     if u_prec > prec or (u_prec == prec and tok.value not in _RIGHT_ASSOC):
                         _pop_op(ops, output)
@@ -466,7 +585,10 @@ def _pop_op(ops: list[Any], output: list[str]) -> None:
         output.append("neg")
         return
     if isinstance(top, Tok) and top.kind == "op":
-        output.append(top.value)
+        if top.value == "∠":
+            output.append("polar")
+        else:
+            output.append(top.value)
         return
     raise CalcError(
         "internal_error",
@@ -484,7 +606,7 @@ def evaluate_infix(
 ) -> dict[str, Any]:
     """Parse infix → RPN tokens → evaluate with the stack engine."""
     allow = set(bindings.keys()) if bindings else set()
-    tokens = to_rpn(expression, allow_bindings=allow)
+    tokens = to_rpn(expression, allow_bindings=allow, angle_mode=angle_mode)
     rpn_str = " ".join(tokens)
     result = rpn_mod.evaluate(
         rpn_str,

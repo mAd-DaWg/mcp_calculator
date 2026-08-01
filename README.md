@@ -8,6 +8,12 @@ stdio MCP server that gives LLMs a **scientific calculator with normal infix mat
 
 - [Install / use](#install--use-cursor--claude-desktop)
 - [How the calculator works](#how-the-calculator-works)
+  - [Expression grammar](#expression-grammar)
+  - [Angle mode and suffixes](#angle-mode-and-suffixes)
+  - [Engineering symbols](#engineering-symbols)
+  - [Complex and polar](#complex-and-polar)
+  - [Evaluate pipeline](#evaluate-pipeline)
+- [Calculator modes → MCP tools](#calculator-modes--mcp-tools)
 - [MCP request and response conventions](#mcp-request-and-response-conventions)
 - [Tools reference](#tools-reference)
 - [Operator / function reference](#operator--function-reference)
@@ -15,6 +21,8 @@ stdio MCP server that gives LLMs a **scientific calculator with normal infix mat
 - [Unit conversions](#unit-conversions)
 - [Precision](#precision)
 - [Limitations and safety](#limitations-and-safety)
+- [Manual coverage gaps](#manual-coverage-gaps)
+- [Possible future enhancements](#possible-future-enhancements)
 - [Tests](#tests)
 
 ---
@@ -58,42 +66,150 @@ Entry points: console script `mcp-calculator`, or `python -m mcp_calculator`. Tr
 
 ## How the calculator works
 
+```mermaid
+flowchart LR
+  client[MCP_client_stdio] --> tool[Tool_handler]
+  tool --> catch[catch_calc]
+  catch --> infix[Infix_lexer_shunting_yard]
+  catch --> domain[Domain_tools]
+  infix --> rpn[RPN_stack_engine]
+  domain --> jsonOut[JSON_string_response]
+  rpn --> jsonOut
 ```
-MCP client (stdio JSON-RPC)
-  → mcp-calculator tool handler
-  → catch_calc (never raises to the client)
-  → infix parser → RPN stack engine (or matrix / solve / …)
-  → JSON object serialized as a string
-```
 
-### Infix evaluation (`evaluate`)
+Every tool goes through an error wrapper (`catch_calc`): failures come back as JSON with `ok: false`, never as a crashed process. From there, a call either:
 
-1. Validate non-empty expression (length ≤ 100 000 characters) and `angle_mode` ∈ `{rad, deg, grad}`.
-2. Lex infix into numbers, names, operators, parentheses, commas, and `!`.
-3. Insert implicit multiplication where needed (`2pi`, `2(3+4)`, `2x`).
-4. Convert to RPN with the shunting-yard algorithm (precedence, unary minus, function calls).
-5. Evaluate the RPN token list on the allowlisted stack machine.
-6. Return the result plus the original `expression` and the internal `rpn` string.
+- parses an infix expression (`evaluate` and tools that take `f(x)`), or
+- runs a dedicated handler (matrix, stats, solve, BASE-N, distribution, LIST, finance, units, …).
 
-**Infix syntax**
+Mode choices (angle unit, regression model, distribution type, which TVM unknown to solve, …) are **tool parameters**. Some limits are fixed (for example Base-N is always **32-bit**) and are called out in the tool descriptions.
+
+This server aims to cover ordinary scientific-calculator maths and common extras (stats, matrices, finance, …). Interactive calculator UI (screen formatting, graphing viewport, onboard programming IDE) is out of scope.
+
+### Expression grammar
 
 | Construct | Example |
 | --- | --- |
 | Arithmetic | `90+(40-30)`, `2+3*4` |
 | Powers | `2^10`, `2**3` (same as `^`) |
 | Unary minus | `-5`, `2*-3`; `-2^2` → `-4` |
-| Functions | `sin(30)`, `sqrt(9)`, `abs(x)` |
-| Multi-arg | `atan2(y,x)`, `log(10,100)`, `cmplx(3,4)`, `min(a,b)` |
+| Functions | `sin(30)`, `sqrt(9)`, `abs(x)`, `engshift(1234,-1)` |
+| Multi-arg | `atan2(y,x)`, `log(10,100)`, `cmplx(3,4)`, `polar(r,theta)` |
 | Factorial | `5!` |
 | Constants | `pi/6`, `qe` |
-| Variable | `x` (calculus / roots) |
+| Bindings | `variables={"A":2,"B":3}` with expression `A+B` |
+| Variable `x` | calculus / roots / Σ / Π / table |
 | Implicit `*` | `2pi`, `2(3+4)`, `(1+2)(3)`, `2x` |
 
-**Precedence (tightest last):** `+` `-` → `*` `/` `%` → unary `-` → `^` → postfix `!`. `^` is right-associative.
+**Precedence (tightest last):** `+` `-` → `*` `/` `%` → unary `-` and `∠` → `^` → postfix `!`. `^` is right-associative.
 
-**Angle mode** affects circular trig (`sin`, `cos`, `tan`, inverses, `sec`/`csc`/`cot`, `atan2`, `arg`). Hyperbolic functions ignore angle mode. Pass `angle_mode` on the tool call (mid-expression `RAD`/`DEG`/`GRAD` tokens are not part of the infix grammar).
+### Angle mode and suffixes
 
-Higher-level tools (matrix, stats, solve, BASE-N, units) use dedicated algorithms; `differentiate`, `integrate`, and `solve_root` evaluate **infix** expressions in `x`.
+Pass `angle_mode` on the tool (`rad` | `deg` | `grad`). It affects circular trig (`sin`, `cos`, `tan`, inverses, `sec`/`csc`/`cot`, `atan2`, `arg`). Hyperbolic functions ignore angle mode.
+
+Mid-expression **angle suffixes** convert a literal into the current `angle_mode` before evaluation:
+
+| Suffix | Meaning |
+| --- | --- |
+| `°` or `deg` | value is in degrees |
+| `r` or `rad` | value is in radians |
+| `g` or `grad` | value is in gradians |
+
+```mermaid
+flowchart LR
+  raw["literal_30_deg"] --> conv[Convert_into_angle_mode]
+  mode[angle_mode_param] --> conv
+  conv --> trig[sin_cos_tan_etc]
+```
+
+Example: `sin(30°)` with `angle_mode=rad` converts 30° → π/6, then takes sine → ~0.5. Mid-expression `RAD`/`DEG`/`GRAD` **tokens** are not supported — use the tool parameter.
+
+### Engineering symbols
+
+Glued SI prefixes after a real literal (engineering symbols):
+
+`f` `p` `n` `u`/`μ` `m` `k` `M` `G` `T` `P` `E`
+
+Examples: `500k` → 500000, `3μ` → 3e-6, `999k+25k` → 1024000.
+
+- Infix: `engshift(x, n)` multiplies by `1000^n` (ENG / ENG← style).
+- Tools: `eng_format`, `eng_shift`.
+- `evaluate(..., eng_symbols=true)` adds an `eng` object (`significand`, `exponent`, `symbol`, `display`) for real results.
+
+Note: glued `2m` is **milli** (0.002). For a binding named `m`, write `2*m` or `2 m`.
+
+### Complex and polar
+
+| Form | Example |
+| --- | --- |
+| Rectangular pack | `cmplx(3,4)`, `abs(cmplx(3,4))` |
+| Polar **input** literal | `2∠90` (θ uses `angle_mode`) |
+| Polar function | `polar(2, 90)` same meaning |
+| Output form | `complex_form=rectangular` → `{re,im}`; `polar` → `{r,theta,unit}` |
+
+### Evaluate pipeline
+
+```mermaid
+flowchart TD
+  expr[expression_string] --> lex[Lex_numbers_names_ops]
+  lex --> suf[Apply_eng_and_angle_suffixes]
+  suf --> impl[Insert_implicit_multiply]
+  impl --> sy[Shunting_yard_to_RPN]
+  sy --> stack[Allowlisted_stack_eval]
+  stack --> fmt[Optional_complex_form_and_eng_display]
+  fmt --> resp[JSON_ok_result_rpn]
+```
+
+Higher-level tools (matrix, stats, solve, BASE-N, units, …) use dedicated algorithms; `differentiate`, `integrate`, `solve_root`, Σ/Π/table evaluate **infix** in `x`.
+
+---
+
+## Calculator modes → MCP tools
+
+Modes map to tools; menu/editor choices are tool parameters. Defaults are overridable.
+
+```mermaid
+flowchart TB
+  subgraph calc [Calculate_Complex]
+    evaluate
+    calculus[differentiate_integrate]
+  end
+  subgraph stat [STAT_Distribution]
+    stats1[stats_1var]
+    stats2[stats_2var]
+    distr[distribution]
+    tests[stats_test]
+  end
+  subgraph other [Matrix_BaseN_Solve_List_Finance]
+    matrix_op
+    base[base_convert_arith]
+    solve[solve_tools]
+    list_op
+    finance_tvm
+  end
+```
+
+| Calculator mode | MCP tool(s) | Enterable / selectable inputs |
+| --- | --- | --- |
+| Calculate | `evaluate`, `differentiate`, `integrate`, `summation`, `product`, `factorize`, `fmin`/`fmax`, `pol`, `rec`, `dms_*`, `eng_format`, `eng_shift` | expression; `angle_mode`; `complex_form`; `variables`; `eng_symbols`; eng/angle/polar syntax; calc `h`/`tol`; Σ/Π bounds |
+| Complex | `evaluate` | `complex_form`; polar input `r∠θ` |
+| Base-N | `base_convert`, `base_arith` | value/a/b, bases 2/8/10/16, op incl. `xnor`/`neg` — **width fixed 32-bit** |
+| Matrix / Vector | `matrix_op` | `op` (`ref`≠`rref`, `unit`, `eigen`, …), matrices/vector/`n`, `angle_mode` for angle |
+| Statistics | `stats_1var`, `stats_2var` | data; **`model`**; optional `freq`, `predict_*`; `norm_x` → `t`/`P`/`Q`/`R` |
+| Distribution | `distribution` | **`type`** + all variables (incl. `norm_p`/`norm_q`/`norm_r`, tails, …) |
+| Table | `table` | f, optional g, start, end, step |
+| Equation / Func | `solve_linear`, `solve_polynomial`, `solve_root` | coeffs / expression; `allow_complex`; `angle_mode` on root |
+| Inequality | `solve_inequality` | coefficients, **`relation`** |
+| Ratio | `solve_ratio` | a,b,c,d + **`solve_for`** |
+| Spreadsheet | — | Possible future enhancement; use `stats_*` / `table` / `evaluate` meanwhile |
+| LIST | `list_op` | `seq`, `cumsum`, `sort_a`, `sort_d`, `delta` |
+| Finance TVM | `finance_tvm` | `solve_for` N\|I\|PV\|PMT\|FV + other four values |
+| STAT TESTS | `stats_test` | z/t/prop/anova/linreg_ttest + editor fields |
+| Setup | per-call params | Defaults overridable; Pol/Rec default `deg`; most others default `rad` |
+
+`stats_2var` **model**: `linear`, `quadratic`, `logarithmic`, `exp`, `abexp`, `power`, `inverse`, `cubic`, `quartic`, `logistic`, `medmed`.
+
+`distribution` **type**: `normal_pd`/`cd`, `inverse_normal` (+ `tail`), `binomial_*`, `inverse_binomial`, `poisson_*`, `geometric_*`, `t_*`, `chi2_*`, `f_*`, `norm_p`/`norm_q`/`norm_r`.
 
 ---
 
@@ -120,7 +236,7 @@ Every tool returns a **JSON string**. The MCP layer delivers that string as tool
 }
 ```
 
-On `ok: false`, read **`message`** and **`hint`** before retrying. Discovery tools (`list_operations`, `list_constants`, `list_unit_conversions`) help recover from unknown tokens.
+On `ok: false`, read **`message`**, **`hint`**, and when present **`example`** / **`did_you_mean`** before retrying — those fields say what to fix. Discovery tools (`list_operations`, `list_constants`, `list_unit_conversions`) help recover from unknown tokens. Agents see tool **docstrings** and server **instructions** (When/Params/Example), not this README.
 
 ### Illustrative MCP `tools/call` envelope
 
@@ -165,30 +281,47 @@ When this server is connected over MCP, the model sees each tool’s **descripti
 
 | Tool | Purpose |
 | --- | --- |
-| `evaluate` | Main calculator: evaluate ordinary maths expressions |
+| `evaluate` | Main calculator: infix; eng/`°`/`r`/`g`/`r∠θ`; `variables`; `eng_symbols` |
 | `list_operations` | Discover available operators and function names |
 | `list_constants` | Discover math/physics constant names and values |
 | `list_unit_conversions` | Discover supported unit conversion ids |
-| `matrix_op` | Matrix and vector algebra (det, inverse, dot, …) |
-| `stats_1var` | Summary statistics for one list of numbers |
-| `stats_2var` | Two-variable stats and linear regression |
+| `matrix_op` | Matrix and vector algebra (det, inv, ref, rref, unit, eigen, …) |
+| `stats_1var` | 1-VAR stats (+ optional FREQ; optional `norm_x` → `t`/`P`/`Q`/`R`) |
+| `stats_2var` | Two-variable stats and selectable regression models |
 | `solve_linear` | Solve a system of linear equations |
 | `solve_root` | Find a numeric root of f(x) = 0 |
 | `solve_polynomial` | Find roots of a polynomial (degree 1–4) |
-| `base_convert` | Convert integers between binary/octal/decimal/hex |
+| `solve_inequality` | Solve polynomial inequality with relation |
+| `solve_ratio` | Solve a:b = c:d for one unknown |
+| `base_convert` | Convert integers between binary/octal/decimal/hex (32-bit) |
 | `base_arith` | Integer arithmetic and bitwise ops in a chosen base |
 | `differentiate` | Approximate the derivative of f(x) at a point |
 | `integrate` | Approximate a definite integral of f(x) |
+| `summation` | Σ of f(x) from start to end |
+| `product` | Π of f(x) from start to end |
+| `factorize` | Prime factorization (integer FACT) |
+| `fmin` / `fmax` | Approximate min/max of f(x) on an interval |
+| `pol` / `rec` | Rectangular ↔ polar coordinates |
+| `dms_to_decimal` / `decimal_to_dms` | Sexagesimal ° ′ ″ conversion |
+| `eng_format` / `eng_shift` | Engineering display / ×1000ⁿ shift |
+| `distribution` | Normal / binomial / Poisson / geometric / t / χ² / F (+ `norm_p`/`q`/`r`) |
+| `stats_test` | STAT TESTS (z/t/prop/ANOVA/LinRegTTest) |
+| `list_op` | LIST seq / cumsum / sort / ΔList |
+| `finance_tvm` | TVM solver (N, I%, PV, PMT, FV) |
+| `table` | Generate f(x) [and g(x)] values by start/end/step |
 | `convert_unit` | Convert a value between listed measurement units |
 
 ### `evaluate`
 
-The primary tool for checking arithmetic and scientific expressions. Pass ordinary infix maths (parentheses, precedence, functions, constants). The server converts to RPN internally and returns the numeric result plus the internal `rpn` form for transparency.
+The primary tool for checking arithmetic and scientific expressions. Pass ordinary infix maths (parentheses, precedence, functions, constants). The server converts to RPN internally and returns the numeric result plus the internal `rpn` form for transparency. See [Evaluate pipeline](#evaluate-pipeline) for the parse/eval flow.
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `expression` | string | required | Infix expression |
 | `angle_mode` | string | `"rad"` | `rad`, `deg`, or `grad` |
+| `complex_form` | string | `"rectangular"` | `rectangular` (a+bi) or `polar` (r∠θ) for complex results |
+| `variables` | object | optional | Name→float bindings (e.g. `{"A":2,"B":3}` with `A+B`) |
+| `eng_symbols` | bool | `false` | If true, real results include an `eng` display object |
 
 **Arguments**
 
@@ -226,6 +359,40 @@ The primary tool for checking arithmetic and scientific expressions. Pass ordina
 
 (`sin(50)` with `angle_mode=grad` likewise yields ~0.5.)
 
+**Angle suffix** (convert into current `angle_mode`):
+
+```json
+{"expression": "sin(30°)", "angle_mode": "rad"}
+```
+
+**Engineering suffixes**
+
+```json
+{"expression": "500k+10M"}
+```
+
+```json
+{"ok": true, "result": 10500000.0, "expression": "500k+10M", "angle_mode": "rad", "rpn": "500000 10000000 +", "complex_form": "rectangular"}
+```
+
+With `eng_symbols: true`, a real result also includes `"eng": {"significand": 10.5, "exponent": 6, "symbol": "M", "display": "10.5M"}`.
+
+**Polar complex input**
+
+```json
+{"expression": "2∠90", "angle_mode": "deg", "complex_form": "rectangular"}
+```
+
+```json
+{"ok": true, "result": {"re": 1.2246467991473532e-16, "im": 2.0}, "expression": "2∠90", "angle_mode": "deg", "rpn": "2 90 polar", "complex_form": "rectangular"}
+```
+
+**Variables**
+
+```json
+{"expression": "A+B", "variables": {"A": 2, "B": 3}}
+```
+
 **Complex**
 
 ```json
@@ -242,7 +409,7 @@ The primary tool for checking arithmetic and scientific expressions. Pass ordina
 }
 ```
 
-A non-real complex result looks like `"result": {"re": 1.0, "im": 2.0}`.
+A non-real complex result looks like `"result": {"re": 1.0, "im": 2.0}`. With `complex_form": "polar"` the same value is `"result": {"r": …, "theta": …, "unit": …}`.
 
 **Constants**
 
@@ -284,21 +451,22 @@ A non-real complex result looks like `"result": {"re": 1.0, "im": 2.0}`.
 Discovery helpers so agents do not guess names. Call these when unsure which operators, physics constants, or unit conversions exist. Each takes no parameters and returns `ok: true` plus an array:
 
 - `list_operations` → `operations[]` with `name`, `arity`, `description`, `angle_sensitive`
-- `list_constants` → `constants[]` with `name`, `value`, `unit`, `note`, `codata_year`, optional `casio_index`
+- `list_constants` → `constants[]` with `name`, `value`, `unit`, `note`, `codata_year`, optional `catalog_index`
 - `list_unit_conversions` → `conversions[]` with `id`, `from`, `to`, plus `factor` or `note` for temperature
 
 See the [operator](#operator--function-reference), [constants](#constants-reference), and [units](#unit-conversions) catalogs below for the full inventories.
 
 ### `matrix_op`
 
-Linear algebra on small dense matrices and vectors: add/subtract/multiply, transpose, determinant, inverse, reduced row echelon form (RREF), identity matrices, and vector operations (dot product, 3D cross product, Euclidean norm, angle between vectors). Maximum dimension is **32**.
+Linear algebra on small dense matrices and vectors: add/subtract/multiply, transpose, determinant, inverse, **REF** and **RREF** (distinct), identity, **eigen**, and vector ops (dot, 3D cross, Euclidean norm, angle, **unit** vector). Maximum dimension is **32**.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `op` | string | `add`, `sub`, `mul`, `transpose`, `det`, `inv`, `identity`, `rref`, `dot`, `cross`, `norm`, `angle` |
+| `op` | string | `add`, `sub`, `mul`, `transpose`, `det`, `inv`, `identity`, `ref`, `rref`, `eigen`, `dot`, `cross`, `norm`, `angle`, `unit` |
 | `matrices` | list | One or two matrices, or two vectors for vector ops |
-| `vector` | list of float | Single vector (e.g. for `norm`) |
+| `vector` | list of float | Single vector (e.g. for `norm` / `unit`) |
 | `n` | int | Size for `identity` |
+| `angle_mode` | string | `rad`/`deg`/`grad` for `angle` (default `"rad"`) |
 
 **Determinant**
 
@@ -352,11 +520,13 @@ Linear algebra on small dense matrices and vectors: add/subtract/multiply, trans
 
 ### `stats_1var`
 
-One-variable descriptive statistics for a list of numbers: count, mean, sum, sum of squares, min/max, median, and population/sample variance and standard deviation. Use when summarizing a single sample (max 100 000 points).
+One-variable descriptive statistics: count, mean, sum, sum of squares, min/max, Q1/median/Q3, mode, and population/sample variance and standard deviation (max 100 000 points).
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `data` | list of float | Non-empty; max 100 000 points |
+| `data` | list of float | Non-empty |
+| `freq` | list of float | Optional FREQ column (same length as `data`) |
+| `norm_x` | float | Optional STAT Norm Dist input → adds `t`, `P`, `Q`, `R` |
 
 ```json
 {"data": [1, 2, 3, 4]}
@@ -379,18 +549,60 @@ One-variable descriptive statistics for a list of numbers: count, mean, sum, sum
 }
 ```
 
-### `stats_2var`
+#### STAT Norm Dist (`norm_x`)
 
-Two-variable statistics and ordinary least-squares linear regression. Fits **y = a + b·x**, returns slope `b`, intercept `a`, correlation `r`, and means. Needs at least two points and equal-length `x` / `y` lists.
+When `norm_x` is set, the tool standardizes against the sample mean and **population** σ, then returns areas P/Q/R:
+
+```mermaid
+flowchart TD
+  data[data_and_optional_freq] --> stats[mean_and_sigma_pop]
+  x[norm_x] --> tcalc["t_equals_x_minus_mean_over_sigma"]
+  stats --> tcalc
+  tcalc --> P["P_area_neg_inf_to_t"]
+  tcalc --> Q["Q_area_0_to_t"]
+  tcalc --> R["R_area_t_to_pos_inf"]
+```
 
 ```json
-{"x": [1, 2, 3], "y": [2, 4, 6]}
+{"data": [1, 2, 3, 4, 5], "norm_x": 4}
+```
+
+```json
+{
+  "ok": true,
+  "n": 5.0,
+  "mean": 3.0,
+  "std_pop": 1.4142135623730951,
+  "norm_x": 4.0,
+  "t": 0.7071067811865475,
+  "P": 0.7602499389065233,
+  "Q": 0.26024993890652326,
+  "R": 0.23975006109347674
+}
+```
+
+(Response also includes the usual 1-VAR fields: `sum`, `sumsq`, quartiles, variance, etc.)
+### `stats_2var`
+
+Two-variable statistics and regression. **Select Type is a required choice** via `model` (not hardcoded to linear). Optional FREQ and ŷ/x̂ estimates match STAT Reg.
+
+| Parameter | Type | Default |
+| --- | --- | --- |
+| `x`, `y` | list of float | required, equal length |
+| `model` | string | `"linear"` — see [modes table](#calculator-modes--mcp-tools) |
+| `freq` | list of float | optional |
+| `predict_y_at` | float | optional → `y_hat` |
+| `predict_x_at` | float | optional → `x_hat` / `x_hat1`,`x_hat2` |
+
+```json
+{"x": [1, 2, 3], "y": [2, 4, 6], "model": "linear"}
 ```
 
 ```json
 {
   "ok": true,
   "n": 3,
+  "model": "linear",
   "a": 0.0,
   "b": 2.0,
   "r": 1.0,
@@ -399,6 +611,10 @@ Two-variable statistics and ordinary least-squares linear regression. Fits **y =
   "predict_at_mean": 4.0,
   "equation": "y = a + b*x"
 }
+```
+
+```json
+{"x": [1, 2, 3, 4], "y": [1, 4, 9, 16], "model": "quadratic", "predict_y_at": 2}
 ```
 
 ### `solve_linear`
@@ -452,10 +668,10 @@ Finds a real number **x** where an infix expression **f(x) equals zero** (for ex
 
 ### `solve_polynomial`
 
-Finds all roots of a polynomial **a₀ + a₁x + … + aₙxⁿ**. Pass coefficients as `[a0, …, an]` (constant term first). **Degree 1–4 only** (closed form for degrees 1–3; Durand–Kerner iteration for degree 4). Roots may be complex (`{re, im}`).
+Finds roots of **a₀ + a₁x + … + aₙxⁿ**. Pass `[a0, …, an]` (constant first). **Degree 1–4**. `allow_complex` mirrors complex-solutions On/Off (default `true`).
 
 ```json
-{"coefficients": [-2, 0, 1]}
+{"coefficients": [-2, 0, 1], "allow_complex": true}
 ```
 
 ```json
@@ -463,13 +679,34 @@ Finds all roots of a polynomial **a₀ + a₁x + … + aₙxⁿ**. Pass coeffici
   "ok": true,
   "degree": 2,
   "roots": [1.4142135623730951, -1.4142135623730951],
-  "coefficients": [-2.0, 0.0, 1.0]
+  "coefficients": [-2.0, 0.0, 1.0],
+  "allow_complex": true
 }
+```
+
+### `solve_inequality`
+
+Inequality mode: polynomial with relation `>`, `>=`, `<`, or `<=` (degree 1–4). Coefficients low-to-high like the Coefficient Editor.
+
+```json
+{"coefficients": [-1, 1], "relation": ">"}
+```
+
+### `solve_ratio`
+
+Ratio mode **a:b = c:d**. Provide three known values; `solve_for` is `a`|`b`|`c`|`d`|`x` (`x` = the single missing slot).
+
+```json
+{"a": 2, "b": 3, "d": 6, "solve_for": "c"}
+```
+
+```json
+{"ok": true, "a": 2.0, "b": 3.0, "c": 4.0, "d": 6.0, "solve_for": "c", "value": 4.0}
 ```
 
 ### `base_convert`
 
-Converts an integer string from one base to another among **2, 8, 10, and 16**, using **32-bit** two’s complement. Useful for hex/binary checks. Pass unsigned-style digit patterns for negatives (e.g. `FFFFFFFF` for −1).
+Converts an integer string from one base to another among **2, 8, 10, and 16**, using **32-bit** two’s complement (**fixed** — not a selectable bit width). Pass unsigned-style digit patterns for negatives (e.g. `FFFFFFFF` for −1).
 
 ```json
 {"value": "FF", "from_base": 16, "to_base": 10}
@@ -489,11 +726,11 @@ Converts an integer string from one base to another among **2, 8, 10, and 16**, 
 
 ### `base_arith`
 
-Performs integer arithmetic and bitwise operations on values written in a chosen base (2/8/10/16), still in **32-bit** two’s complement. Supports `add`, `sub`, `mul`, `div`, `and`, `or`, `xor`, and unary `not`. Results wrap at 32 bits; `div` uses signed interpretation.
+Performs integer arithmetic and bitwise operations on values written in a chosen base (2/8/10/16), still in **32-bit** two’s complement. Supports `add`, `sub`, `mul`, `div`, `and`, `or`, `xor`, `xnor`, unary `not`, and unary `neg`. Results wrap at 32 bits; `div` uses signed interpretation.
 
 | Parameter | Type | Default |
 | --- | --- | --- |
-| `op` | string | `add`, `sub`, `mul`, `div`, `and`, `or`, `xor`, `not` |
+| `op` | string | `add`, `sub`, `mul`, `div`, `and`, `or`, `xor`, `xnor`, `not`, `neg` |
 | `a` | string | required |
 | `b` | string | required except for `not` |
 | `base` | int | `10` |
@@ -563,6 +800,102 @@ Approximates the definite integral of an infix function of `x` from `lower` to `
 
 Caps: recursion depth 40, ≤ 100 000 function evaluations.
 
+### `summation`
+
+Σ: sum an infix expression in `x` for integer index from `start` to `end` inclusive.
+
+```json
+{"expression": "x+1", "start": 1, "end": 5}
+```
+
+```json
+{"ok": true, "sum": 20.0, "expression": "x+1", "index": "x", "start": 1, "end": 5, "angle_mode": "rad"}
+```
+
+### `pol` / `rec`
+
+Rectangular ↔ polar. Default `angle_mode` is `"deg"`.
+
+```json
+{"x": 2, "y": 2, "angle_mode": "deg"}
+```
+
+```json
+{"ok": true, "r": 2.8284271247461903, "theta": 45.0, "x": 2.0, "y": 2.0, "angle_mode": "deg"}
+```
+
+### `dms_to_decimal` / `decimal_to_dms`
+
+Sexagesimal ° ′ ″ ↔ decimal degrees.
+
+```json
+{"degrees": 10, "minutes": 30, "seconds": 0}
+```
+
+```json
+{"ok": true, "decimal": 10.5, "degrees": 10.0, "minutes": 30.0, "seconds": 0.0}
+```
+
+### `distribution`
+
+Distribution mode — pass **`type`** and every variable that type needs (none are hardcoded).
+
+| type | Required inputs |
+| --- | --- |
+| `normal_pd` | `x`, `sigma`, `mu` |
+| `normal_cd` | `lower`, `upper`, `sigma`, `mu` |
+| `inverse_normal` | `area`, `sigma`, `mu` (+ optional `tail`) |
+| `binomial_pd` / `binomial_cd` | `x`, `n`, `p` (`x` may be a list) |
+| `inverse_binomial` | `area`, `n`, `p` |
+| `poisson_pd` / `poisson_cd` | `x`, `lambda_` |
+| `geometric_*`, `t_*`, `chi2_*`, `f_*` | see tool docstring / `list`-style discovery via errors |
+| `norm_p` / `norm_q` / `norm_r` | `x` = standardized **t** (or use `stats_1var` with `norm_x`) |
+
+```json
+{"type": "normal_pd", "x": 36, "sigma": 2, "mu": 35}
+```
+
+```json
+{"type": "norm_p", "x": 1.0}
+```
+
+### `eng_format` / `eng_shift`
+
+Engineering display helpers (also available in infix via suffixes and `engshift`):
+
+| Tool | Inputs | Result |
+| --- | --- | --- |
+| `eng_format` | `value` | significand / exponent / SI symbol / `display` string |
+| `eng_shift` | `value`, `steps` (default 1) | `value * 1000^steps` |
+
+```json
+{"value": 12345}
+```
+
+```json
+{"ok": true, "value": 12345.0, "significand": 12.345, "exponent": 3, "symbol": "k", "display": "12.345k"}
+```
+
+### `product` / `factorize` / `fmin` / `fmax`
+
+- **`product`** — Π of infix `f(x)` from integer `start` to `end` (same shape as `summation`).
+- **`factorize`** — prime factorization of a positive integer (`n`).
+- **`fmin` / `fmax`** — approximate min/max of infix `f(x)` on `[lower, upper]` with `angle_mode`.
+
+### `stats_test` / `list_op` / `finance_tvm`
+
+- **`stats_test`** — STAT TESTS: z/t/prop/ANOVA/LinRegTTest; pass the editor fields for the chosen test type.
+- **`list_op`** — LIST: `seq`, `cumsum`, `sort_a`, `sort_d`, `delta`.
+- **`finance_tvm`** — solve for one of `N`, `I`, `PV`, `PMT`, `FV` given the other four.
+
+### `table`
+
+Table mode: evaluate `expression` (and optional `expression2` as g) from `start` to `end` by `step`.
+
+```json
+{"expression": "2*x", "start": 0, "end": 2, "step": 1, "expression2": "x^2"}
+```
+
 ### `convert_unit`
 
 Converts a numeric value between common measurement units (length, area, volume, mass, pressure, force, energy, power, and temperature). Only pairs listed by `list_unit_conversions` are supported — there is no free-form dimensional analysis. Pass either a `conversion_id` **or** `from_unit` + `to_unit`. Full id list: [Unit conversions](#unit-conversions).
@@ -595,7 +928,7 @@ Temperature example (`100 °C → °F`):
 
 ## Operator / function reference
 
-74 operators/functions from the allowlist. In infix, use binary symbols (`+`, `^`, …) or **function-call** form `name(args)` matching arity. `angle_sensitive` means circular-trig / mode behavior. Call `list_operations` at runtime for the same data.
+76 operators/functions from the allowlist. In infix, use binary symbols (`+`, `^`, `∠`, …) or **function-call** form `name(args)` matching arity. `angle_sensitive` means circular-trig / mode behavior. Call `list_operations` at runtime for the same data.
 
 ### Arithmetic and powers
 
@@ -684,13 +1017,20 @@ Temperature example (`100 °C → °F`):
 | Name | Arity | Angle | Description |
 | --- | --- | --- | --- |
 | `cmplx` | 2 | | Pack re, im → complex — `cmplx(re,im)` |
+| `polar` | 2 | yes | `r∠θ` → complex (θ uses `angle_mode`) — infix `2∠90` or `polar(2,90)` |
 | `re` / `im` | 1 | | Real / imaginary part — `re(z)`, `im(z)` |
 | `conj` | 1 | | Conjugate — `conj(z)` |
 | `arg` | 1 | yes | Argument (angle mode) — `arg(z)` |
 
+### Engineering
+
+| Name | Arity | Description |
+| --- | --- | --- |
+| `engshift` | 2 | `x * 1000^n` — `engshift(1234, 1)` |
+
 ### Mode switches
 
-`RAD` / `DEG` / `GRAD` exist in the internal op table (arity 0) but are **not** part of the infix grammar. Set `angle_mode` on the tool instead.
+`RAD` / `DEG` / `GRAD` exist in the internal op table (arity 0) but are **not** part of the infix grammar. Set `angle_mode` on the tool instead. Mid-expression angle **suffixes** (`°`/`r`/`g`) are supported — see [Angle mode and suffixes](#angle-mode-and-suffixes).
 
 Function/operator names are matched case-insensitively.
 
@@ -826,11 +1166,13 @@ Trig in degrees can show classic float artifacts (e.g. `sin(30°)` → `0.499999
 | Matrix / vector / linear system dimension | 32 |
 | Stats sample size | 100 000 |
 | Polynomial degree | 1–4 |
-| BASE-N | bases 2, 8, 10, 16 only; 32-bit two’s complement |
+| BASE-N | bases 2, 8, 10, 16 only; **32-bit two’s complement fixed** (not selectable) |
 | Integration | depth ≤ 40; ≤ 100 000 evaluations |
+| Summation / table rows | ≤ 100 000 steps |
 | Calculus / root variable | only `x` |
 | Calculus | numerical only (not symbolic) |
 | Units | fixed conversion table only |
+| Display Fix/Sci/Norm | not tool inputs — JSON returns full floats |
 
 ### Scope boundaries
 
@@ -838,9 +1180,11 @@ Trig in degrees can show classic float artifacts (e.g. `sin(30°)` → `0.499999
 - Not a CAS: no symbolic simplify, expand, or algebraic rearrange.
 - Not arbitrary precision.
 - Hyperbolic functions ignore `angle_mode`.
-- Mid-expression `RAD`/`DEG`/`GRAD` tokens are not supported in infix — use the `angle_mode` parameter.
-- BASE-N does not accept leading `-`; use 32-bit patterns for negatives.
+- Mid-expression `RAD`/`DEG`/`GRAD` **tokens** are not supported in infix — use the `angle_mode` parameter. Mid-expression **`°` / `r` / `g`** (and `deg`/`rad`/`grad`) **are** supported and convert into the current angle mode.
+- Glued engineering suffix: `2m` means milli (0.002). For a binding named `m`, write `2*m`.
+- BASE-N does not accept leading `-`; use 32-bit patterns for negatives, or `base_arith` op `neg`. Bit width is not a parameter.
 - Responses never include NaN/Inf JSON numbers; overflow becomes an error object.
+- Narrow UI/hardware exclusions: display Fix/Sci/Norm formatting, interactive graph viewport (Y=/TRACE), full calculator-Basic IDE. See [gaps](#manual-coverage-gaps) and [future enhancements](#possible-future-enhancements) for numeric features not built yet.
 
 ### Error codes
 
@@ -867,6 +1211,29 @@ Trig in degrees can show classic float artifacts (e.g. `sin(30°)` → `0.499999
 ### Safety
 
 Expressions are lexed and dispatched through fixed operator and constant registries. There is no Python `eval`/`exec` of user input, and no subprocess invocation for calculation.
+
+---
+
+## Manual coverage gaps
+
+Common scientific calculator coverage is the **minimum floor**. Many former gaps are now implemented (Q1/Q3/mode, Σy…, factorize, Π, fMin/fMax, multi-var `variables`, Base-N `neg`, distribution extras, STAT TESTS, LIST, TVM, eigen, engineering symbols, polar `∠` literals, mid-expression `°`/`r`/`g`, STAT Norm Dist P/Q/R/t). Remaining:
+
+| Gap | Notes |
+| --- | --- |
+| Spreadsheet | Deferred — see future list |
+| Math Box | Dice/coin/number line/unit circle pedagogy |
+
+**Medium gaps:** richer % key patterns, sexagesimal arithmetic in expressions, fuller metric catalog, inequality compound-string form, named MatA–D session.
+
+## Possible future enhancements
+
+| Enhancement | Notes |
+| --- | --- |
+| Spreadsheet mode | Grid + formulas; workaround via numeric tools today |
+| Math Box | Pedagogy / simulation |
+| Named MatA–D / MatAns session | Bindings and/or session |
+| Interactive graphing / calculator-Basic IDE | Narrow UI exclusions unless requested |
+| Plot *data* APIs | Without full viewport |
 
 ---
 

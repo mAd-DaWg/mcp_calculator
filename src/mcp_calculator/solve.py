@@ -224,8 +224,14 @@ def solve_root(
     )
 
 
-def solve_polynomial(coefficients: list[float]) -> dict[str, Any]:
-    """Roots of a0 + a1 x + ... + an x^n = 0. coefficients = [a0, a1, ..., an]."""
+def solve_polynomial(
+    coefficients: list[float],
+    allow_complex: bool = True,
+) -> dict[str, Any]:
+    """Roots of a0 + a1 x + ... + an x^n = 0. coefficients = [a0, a1, ..., an].
+
+    allow_complex: equation complex-solutions setting (On/Off).
+    """
     if not coefficients:
         raise CalcError("invalid_data", "Empty coefficient list", "Pass [a0,a1,...,an].")
     coeffs = [complex(c) for c in coefficients]
@@ -311,9 +317,17 @@ def solve_polynomial(coefficients: list[float]) -> dict[str, Any]:
             return float(z.real)
         return {"re": float(z.real), "im": float(z.imag)}
 
+    serialized = [ser(r) for r in roots]
+    if not allow_complex:
+        real_only = [s for s in serialized if not isinstance(s, dict)]
+        if len(real_only) != len(serialized):
+            # Drop complex roots when Equation/Func complex solutions Off
+            serialized = real_only
+
     return ok(
         degree=deg,
-        roots=[ser(r) for r in roots],
+        roots=serialized,
+        allow_complex=bool(allow_complex),
         coefficients=[
             float(c.real) if abs(c.imag) < 1e-15 else {"re": c.real, "im": c.imag} for c in a
         ],
